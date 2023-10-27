@@ -12,7 +12,7 @@ T = TypeVar("T")
 
 ItemID = NewType("ItemID", str)
 CollID = NewType("CollID", str)
-OrgID = NewType("OrdID", str)
+OrgID = NewType("OrgID", str)
 FolderID = NewType("FolderID", str)
 GroupID = NewType("GroupID", str)
 UserID = NewType("UserID", str)
@@ -21,11 +21,6 @@ UserID = NewType("UserID", str)
 class DBStatus(enum.StrEnum):
     Locked = "locked"
     Unlocked = "unlocked"
-
-
-OptSecretStr = Annotated[
-    pydantic.SecretStr | None, pydantic.BeforeValidator(lambda v: None if v is None else pydantic.SecretStr(v))
-]
 
 
 class ValidResponse(pydantic.BaseModel, Generic[T]):
@@ -81,13 +76,18 @@ class FieldText(FieldBase):
 
 
 class FieldHidden(FieldBase):
-    value: OptSecretStr
+    value: SecretStr | None
     type: Literal[1] = pydantic.Field(default=1, repr=False)
 
-    @pydantic.field_serializer("value", when_used="json")
-    def dump_secret(self, v: OptSecretStr):
-        if v is None:
-            return None
+    @pydantic.field_validator("value", mode="before")
+    @classmethod
+    def must_be_secret(cls, value: str | SecretStr | None):
+        if value is None or isinstance(value, SecretStr):
+            return value
+        return SecretStr(value)
+
+    @pydantic.field_serializer("value", when_used="json-unless-none")
+    def dump_secret(self, v: SecretStr):
         return v.get_secret_value()
 
 
@@ -119,12 +119,17 @@ Field = Annotated[
 
 class PasswordHist(pydantic.BaseModel):
     lastUsedDate: datetime
-    password: OptSecretStr
+    password: SecretStr
+
+    @pydantic.field_validator("password", mode="before")
+    @classmethod
+    def must_be_secret(cls, value: str | SecretStr):
+        if isinstance(value, SecretStr):
+            return value
+        return SecretStr(value)
 
     @pydantic.field_serializer("password", when_used="json")
-    def dump_secret(self, v: OptSecretStr):
-        if v is None:
-            return None
+    def dump_secret(self, v: SecretStr):
         return v.get_secret_value()
 
 
@@ -149,14 +154,19 @@ class ItemTemplate(BaseObj):
 class LoginData(pydantic.BaseModel):
     uris: list[Any] | None = None
     username: str | None = None
-    password: OptSecretStr | None = None
+    password: SecretStr | None = None
     totp: str | None = None
 
-    @pydantic.field_serializer("password", when_used="json")
-    def dump_secret(self, v: OptSecretStr):
-        if v is None:
-            return None
-        return v.get_secret_value()
+    @pydantic.field_validator("password", mode="before")
+    @classmethod
+    def must_be_secret(cls, value: str | SecretStr | None):
+        if value is None or isinstance(value, SecretStr):
+            return value
+        return SecretStr(value)
+
+    @pydantic.field_serializer("password", when_used="json-unless-none")
+    def dump_secret(self, value: SecretStr):
+        return value.get_secret_value()
 
 
 class SecureNoteData(pydantic.BaseModel):
