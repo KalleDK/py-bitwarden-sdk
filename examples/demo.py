@@ -1,16 +1,11 @@
 import os
 
 import dotenv
-from bw_sdk import Client, LoginData, NewItemLogin
+from bw_sdk import Client, SecretStr
 
 dotenv.load_dotenv()
 
 client = Client()
-client.unlock(os.environ["BW_PASS"])
+client.unlock(SecretStr(os.environ["BW_PASS"]))
 
-ls = client.get_items()
-print(set([l.object for l in ls]))
-for l in ls:
-    if l.passwordHistory is None:
-        continue
-    print(l.passwordHistory)
+print(client.get_fingerprint())
