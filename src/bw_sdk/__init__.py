@@ -207,7 +207,7 @@ class NewItemBase(pydantic.BaseModel):
     notes: str | None = None
     favorite: bool = False
     reprompt: int = 0
-    fields: list[FieldBase] | None = None
+    fields: list[Field] | None = None
 
 
 class NewItemLogin(NewItemBase):
