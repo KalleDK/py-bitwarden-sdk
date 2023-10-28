@@ -18,6 +18,8 @@ permissions:
 
 jobs:
   deploy:
+    environment:
+      name: release
 
     runs-on: ubuntu-latest
 
