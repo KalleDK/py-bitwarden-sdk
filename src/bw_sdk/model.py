@@ -9,16 +9,14 @@ from pydantic import SecretStr as SecretStr
 
 T = TypeVar("T")
 
+# region Type Values
+
 ItemID = NewType("ItemID", str)
 CollID = NewType("CollID", str)
 OrgID = NewType("OrgID", str)
-DirID = NewType("DirID", str)
+FolderID = NewType("FolderID", str)
 GroupID = NewType("GroupID", str)
 UserID = NewType("UserID", str)
-
-
-class BaseModel(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(populate_by_name=True)
 
 
 class DBStatus(enum.StrEnum):
@@ -31,6 +29,22 @@ class LinkTarget(enum.IntEnum):
     Password = 101
 
 
+class Match(enum.IntEnum):
+    BaseDomain = 0
+    Host = 1
+    StartsWith = 2
+    Regexp = 3
+    Excact = 4
+    Never = 5
+
+
+# endregion
+
+
+class BaseModel(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(populate_by_name=True)
+
+
 # region Submodels
 
 
@@ -38,14 +52,6 @@ class GroupLink(BaseModel):
     id: GroupID
     readOnly: bool = False
     hidePasswords: bool = False
-
-
-class UnlockData(BaseModel):
-    no_color: bool = pydantic.Field(alias=str("noColor"))
-    object: str
-    title: str
-    message: str
-    raw: str
 
 
 class PasswordHist(BaseModel):
@@ -64,11 +70,16 @@ class PasswordHist(BaseModel):
         return v.get_secret_value()
 
 
+class UriMatch(BaseModel):
+    match: Match | None
+    uri: str | None
+
+
 # region Item Data
 
 
 class LoginData(BaseModel):
-    uris: list[Any] | None = None
+    uris: list[UriMatch] | None = None
     username: str | None = None
     password: SecretStr | None = None
     totp: str | None = None
@@ -87,6 +98,36 @@ class LoginData(BaseModel):
 
 class SecureNoteData(BaseModel):
     type: Literal[0] = pydantic.Field(repr=False)
+
+
+class CardData(BaseModel):
+    cardholderName: str | None
+    brand: str | None
+    number: str | None
+    expMonth: str | None
+    expYear: str | None
+    code: str | None
+
+
+class IdentityData(BaseModel):
+    title: str | None
+    firstName: str | None
+    middleName: str | None
+    lastName: str | None
+    address1: str | None
+    address2: str | None
+    address3: str | None
+    city: str | None
+    state: str | None
+    postalCode: str | None
+    country: str | None
+    company: str | None
+    email: str | None
+    phone: str | None
+    ssn: str | None
+    username: str | None
+    passportNumber: str | None
+    licenseNumber: str | None
 
 
 # endregion
@@ -179,7 +220,18 @@ class DataList(BaseModel, Generic[T]):
     data: list[T]
 
 
+class MessageObj(BaseModel):
+    object: Literal["message"] = pydantic.Field(repr=False)
+    no_color: bool = pydantic.Field(alias=str("noColor"))
+    title: str
+    message: str | None
+
+
 # endregion
+
+
+class UnlockData(MessageObj):
+    raw: str
 
 
 class BaseObj(BaseModel):
@@ -197,7 +249,7 @@ class ItemTemplate(BaseObj):
     id: ItemID
     org_id: OrgID | None = pydantic.Field(alias=str("organizationId"))
     coll_ids: list[CollID] = pydantic.Field(alias=str("collectionIds"))
-    dir_id: DirID | None = pydantic.Field(alias=str("folderId"))
+    folder_id: FolderID | None = pydantic.Field(alias=str("folderId"))
     notes: str | None
     favorite: bool
     reprompt: int
@@ -223,24 +275,25 @@ class ItemSecureNote(ItemTemplate):
 
 class ItemCard(ItemTemplate):
     type: Literal[3] = pydantic.Field(repr=False)
-    card: Any
+    card: CardData
 
 
 class ItemIdentity(ItemTemplate):
     type: Literal[4] = pydantic.Field(repr=False)
-    identity: Any
+    identity: IdentityData
 
 
 Item = Annotated[
     Union[ItemLogin, ItemSecureNote, ItemCard, ItemIdentity],
     pydantic.Field(discriminator="type"),
 ]
+ItemT = TypeVar("ItemT", ItemLogin, ItemSecureNote, ItemCard, ItemIdentity)
 
 
 class NewItemBase(BaseObj):
     org_id: OrgID | None = pydantic.Field(default=None, alias=str("organizationId"))
     coll_ids: list[CollID] = pydantic.Field(default_factory=list, alias=str("collectionIds"))
-    folder_id: DirID | None = pydantic.Field(default=None, alias=str("folderId"))
+    folder_id: FolderID | None = pydantic.Field(default=None, alias=str("folderId"))
     notes: str | None = None
     favorite: bool = False
     reprompt: int = 0
@@ -262,7 +315,7 @@ class NewItemSecureNote(NewItemBase):
 class Folder(BaseObj):
     object: Literal["folder"] = pydantic.Field(default="folder", repr=False)
 
-    id: DirID
+    id: FolderID
 
 
 class NewFolder(BaseObj):
@@ -313,3 +366,66 @@ class ServerStatus(BaseModel):
     userEmail: str
     userId: UserID
     status: DBStatus
+
+
+# region Payload
+class Payload(BaseModel):
+    pass
+
+
+class Query(BaseModel):
+    pass
+
+
+class SearchQuery(Query):
+    search: str | None = None
+
+
+class UnlockPayload(Payload):
+    password: SecretStr
+
+    @pydantic.field_validator("password", mode="before")
+    @classmethod
+    def must_be_secret(cls, value: str | SecretStr):
+        if isinstance(value, SecretStr):
+            return value
+        return SecretStr(value)
+
+    @pydantic.field_serializer("password", when_used="json")
+    def dump_secret(self, v: SecretStr):
+        return v.get_secret_value()
+
+
+class FoldersQuery(SearchQuery):
+    pass
+
+
+class OrgCollectionQuery(Query):
+    org_id: OrgID | None = pydantic.Field(default=None, alias=str("organizationId"))
+
+
+class OrganizationsQuery(SearchQuery):
+    pass
+
+
+class CollectionsQuery(SearchQuery):
+    org_id: OrgID | None = pydantic.Field(default=None, alias=str("organizationId"))
+
+
+class ItemQuery(SearchQuery):
+    org_id: OrgID | None = pydantic.Field(default=None, alias=str("organizationId"))
+    coll_id: CollID | None = pydantic.Field(default=None, alias=str("collectionId"))
+    folder_id: FolderID | None = pydantic.Field(default=None, alias=str("folderid"))
+    url: str | None = None
+    trash: bool = False
+    search: str | None = None
+
+    @pydantic.model_serializer(mode="wrap")
+    def serialize(self, fn: Callable[[ItemQuery], dict[str, Any]]):
+        dct = fn(self)
+        if dct["trash"] is False:
+            del dct["trash"]
+        return dct
+
+
+# endregion

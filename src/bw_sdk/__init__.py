@@ -1,108 +1,53 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Annotated, Any, Protocol, TypeVar, Union
+from typing import Annotated, TypeVar, Union
 
 import httpx
 import pydantic
 from pydantic import SecretStr as SecretStr
+from pydantic import TypeAdapter
 
 import bw_sdk.model as _m
 
-StrRespT = Annotated[
-    Union[_m.ValidResponse[_m.StrObj], _m.ErrorResponse],
+T = TypeVar('T')
+
+
+type RespT[T] = Annotated[
+    Union[_m.ValidResponse[T], _m.ErrorResponse],
     pydantic.Field(discriminator="success"),
 ]
-StrResp = pydantic.TypeAdapter(StrRespT)
 
-StatusResp = pydantic.TypeAdapter(
-    Annotated[
-        Union[_m.ValidResponse[_m.TemplateObj[_m.ServerStatus]], _m.ErrorResponse],
-        pydantic.Field(discriminator="success"),
-    ]
-)
+type TmplRespT[T] = Annotated[
+    Union[_m.ValidResponse[_m.TemplateObj[T]], _m.ErrorResponse],
+    pydantic.Field(discriminator="success"),
+]
 
-OrgResp = pydantic.TypeAdapter(
-    Annotated[
-        Union[_m.ValidResponse[_m.Organization], _m.ErrorResponse],
-        pydantic.Field(discriminator="success"),
-    ]
-)
-OrgsResp = pydantic.TypeAdapter(
-    Annotated[
-        Union[_m.ValidResponse[_m.DataList[_m.Organization]], _m.ErrorResponse],
-        pydantic.Field(discriminator="success"),
-    ]
-)
+type ListRespT[T] = Annotated[
+    Union[_m.ValidResponse[_m.DataList[T]], _m.ErrorResponse],
+    pydantic.Field(discriminator="success"),
+]
 
-CollResp = pydantic.TypeAdapter(
-    Annotated[
-        Union[_m.ValidResponse[_m.Collection], _m.ErrorResponse],
-        pydantic.Field(discriminator="success"),
-    ]
-)
-CollsResp = pydantic.TypeAdapter(
-    Annotated[
-        Union[_m.ValidResponse[_m.DataList[_m.Collection]], _m.ErrorResponse],
-        pydantic.Field(discriminator="success"),
-    ]
-)
+StrResp = pydantic.TypeAdapter(RespT[_m.StrObj])
 
+UnlockResp =  pydantic.TypeAdapter(RespT[_m.UnlockData])
+LockResp =  pydantic.TypeAdapter(RespT[_m.MessageObj])
+SyncResp =  pydantic.TypeAdapter(RespT[_m.MessageObj])
+StatusResp =  pydantic.TypeAdapter(TmplRespT[_m.ServerStatus])
 
-FolderResp = pydantic.TypeAdapter(
-    Annotated[
-        Union[_m.ValidResponse[_m.Folder], _m.ErrorResponse],
-        pydantic.Field(discriminator="success"),
-    ]
-)
-FoldersResp = pydantic.TypeAdapter(
-    Annotated[
-        Union[_m.ValidResponse[_m.DataList[_m.Folder]], _m.ErrorResponse],
-        pydantic.Field(discriminator="success"),
-    ]
-)
+OrgResp = pydantic.TypeAdapter(RespT[_m.Organization])
+OrgsResp = pydantic.TypeAdapter(ListRespT[_m.Organization])
+CollResp = pydantic.TypeAdapter(RespT[_m.Collection])
+CollsResp = pydantic.TypeAdapter(ListRespT[_m.Collection])
+FolderResp = pydantic.TypeAdapter(RespT[_m.Folder])
+FoldersResp = pydantic.TypeAdapter(ListRespT[_m.Folder])
+ItemResp = pydantic.TypeAdapter(RespT[_m.Item])
+ItemsResp = pydantic.TypeAdapter(ListRespT[_m.Item])
 
 NewItem = _m.NewItemLogin | _m.NewItemSecureNote
-UnlockResp = pydantic.TypeAdapter(
-    Annotated[
-        Union[_m.ValidResponse[_m.UnlockData], _m.ErrorResponse],
-        pydantic.Field(discriminator="success"),
-    ]
-)
-LockResp = pydantic.TypeAdapter(
-    Annotated[
-        Union[_m.ValidResponse[Any], _m.ErrorResponse],
-        pydantic.Field(discriminator="success"),
-    ]
-)
-ItemResp = pydantic.TypeAdapter(
-    Annotated[
-        Union[_m.ValidResponse[_m.Item], _m.ErrorResponse],
-        pydantic.Field(discriminator="success"),
-    ]
-)
-ItemsResp = pydantic.TypeAdapter(
-    Annotated[
-        Union[_m.ValidResponse[_m.DataList[_m.Item]], _m.ErrorResponse],
-        pydantic.Field(discriminator="success"),
-    ]
-)
 
 BaseObjT = TypeVar("BaseObjT", bound=_m.BaseObj)
 
-
-class ValidateObj(Protocol[BaseObjT]):
-    def validate_json(
-        self, __data: str | bytes, *, strict: bool | None = None, context: dict[str, Any] | None = None
-    ) -> _m.ValidResponse[BaseObjT] | _m.ErrorResponse:
-        ...
-
-
-class ValidateList(Protocol[BaseObjT]):
-    def validate_json(
-        self, __data: str | bytes, *, strict: bool | None = None, context: dict[str, Any] | None = None
-    ) -> _m.ValidResponse[_m.DataList[BaseObjT]] | _m.ErrorResponse:
-        ...
 
 
 @dataclasses.dataclass
@@ -111,51 +56,14 @@ class Client:
         default_factory=lambda: httpx.Client(base_url="http://localhost:8087")
     )
 
-    def unlock(self, password: pydantic.SecretStr):
-        res = self.http_client.post("/unlock", json={"password": password.get_secret_value()})
-        resp = UnlockResp.validate_json(res.content)
-
-        if isinstance(resp, _m.ErrorResponse):
-            raise Exception(f"Could not unlock bitwarden [{resp.message}]")
-
-        return resp.data.raw
-
-    def lock(self):
-        res = self.http_client.post("/lock")
-        resp = LockResp.validate_json(res.content)
-
-        if isinstance(resp, _m.ErrorResponse):
-            raise Exception("Could not lock bitwarden")
-
-    def sync(self):
-        res = self.http_client.post("/sync")
-        res.raise_for_status()
-
-    def get_status(self):
-        res = self.http_client.get("/status")
-        resp = StatusResp.validate_json(res.content)
-
-        if isinstance(resp, _m.ErrorResponse):
-            raise Exception(f"Could not get obj [{resp.message}]")
-
-        return resp.data.template
-
-    def get_fingerprint(self):
-        return self._get_str("/object/fingerprint/me")
-
     # region Internal
 
-    def _get_str(self, path: str) -> str:
-        res = self.http_client.get(path)
-        resp: StrRespT = StrResp.validate_json(res.content)
-
-        if isinstance(resp, _m.ErrorResponse):
-            raise Exception(f"Could not get obj [{resp.message}]")
-
-        return resp.data.data
-
-    def _get_object(self, validator: ValidateObj[BaseObjT], obj_type: str, obj_id: str) -> BaseObjT:
-        res = self.http_client.get(f"/object/{obj_type}/{obj_id}")
+    def _put(self, validator: TypeAdapter[RespT[T]], path: str, params: _m.Query | None, payload: _m.Payload | _m.BaseObj | None):
+        _params = None if params is None else params.model_dump(mode='json', by_alias=True, exclude_none=True)
+        _payload = None if payload is None else payload.model_dump(mode="json", by_alias=True)
+        
+        res = self.http_client.put(path, params=_params, json=_payload)
+        
         resp = validator.validate_json(res.content)
 
         if isinstance(resp, _m.ErrorResponse):
@@ -163,31 +71,98 @@ class Client:
 
         return resp.data
 
-    def _get_list(
-        self,
-        validator: ValidateList[BaseObjT],
-        obj_type: str,
-        params: dict[str, str | None] | None,
-        exact: bool,
-    ) -> list[BaseObjT]:
-        search = None if params is None else params.get("search", None)
-        params_cleaned = None if params is None else {k: v for k, v in params.items() if v is not None}
+    def _post(self, path: str, params: _m.Query | None, payload: _m.Payload | _m.BaseObj | None):
+        _params = None if params is None else params.model_dump(mode='json', by_alias=True, exclude_none=True)
+        _payload = None if payload is None else payload.model_dump(mode="json", by_alias=True)
 
-        url = f"/list/object/{obj_type}"
-        # print(url)
-
-        res = self.http_client.get(url, params=params_cleaned)
-
-        # print(res.content)
-
+        res = self.http_client.post(path, params=_params, json=_payload)
+        print(res.content)
+        return res
+    
+    def _post_object(self, validator: TypeAdapter[RespT[T]], path: str, params: _m.Query | None, payload: _m.Payload | _m.BaseObj | None):
+        res = self._post(path, params, payload)
+        
         resp = validator.validate_json(res.content)
 
         if isinstance(resp, _m.ErrorResponse):
-            raise Exception(f"Could not get objs [{resp.message}]")
+            raise Exception(f"Could not get obj [{resp.message}]")
+
+        return resp.data
+    
+    def _delete(self, path: str, params: _m.Query | None):
+        _params = None if params is None else params.model_dump(mode='json', by_alias=True, exclude_none=True)
+        res = self.http_client.delete(path, params=_params)
+        res.raise_for_status()
+        
+    def _get(self, validator: TypeAdapter[RespT[T]], path: str, params: _m.Query | None):
+        _params = None if params is None else params.model_dump(mode='json', by_alias=True, exclude_none=True)
+
+        print(path)
+        print(_params)
+        res = self.http_client.get(path, params=_params)
+        print(res.content)
+        resp = validator.validate_json(res.content)
+
+        if isinstance(resp, _m.ErrorResponse):
+            raise Exception(f"Could not get obj [{resp.message}]")
+
+        return resp.data
+
+    def _get_str(self, path: str, params: _m.Query | None) -> str:        
+        return self._get(StrResp, path, params).data
+   
+    def _get_object(self, validator: TypeAdapter[RespT[BaseObjT]], obj_type: str, obj_id: str, params: _m.Query | None) -> BaseObjT:
+        return self._get(validator, f"/object/{obj_type}/{obj_id}", params)
+           
+    def _get_tmpl(self, validator: TypeAdapter[TmplRespT[T]], path: str, params: _m.Query | None) -> T:
+        return self._get(validator, path, params).template
+    
+    def _get_list(
+        self,
+        validator: TypeAdapter[ListRespT[T]],
+        path: str,
+        params: _m.Query | None,
+    ) -> list[T]:
+        return self._get(validator, path, params).data
+
+    def _get_object_list(
+        self,
+        validator: TypeAdapter[ListRespT[BaseObjT]],
+        obj_type: str,
+        params: _m.SearchQuery | None,
+        exact: bool,
+    ) -> list[BaseObjT]:
+        search = None if params is None else params.search
+        
+        path = f"/list/object/{obj_type}"
+        
+        result = self._get_list(validator, path, params)
 
         if exact:
-            return [x for x in resp.data.data if x.name == search]
-        return resp.data.data
+            return [x for x in result if x.name == search]
+        return result
+
+    # endregion
+
+    # region Misc
+
+    def unlock(self, password: SecretStr):
+        payload = _m.UnlockPayload(
+            password=password
+        )
+        return self._post_object(UnlockResp, "/unlock", params=None, payload=payload)
+
+    def lock(self):
+        return self._post_object(LockResp, "/lock", params=None, payload=None)        
+
+    def sync(self):
+        return self._post_object(SyncResp, "/sync", params=None, payload=None)
+        
+    def get_status(self):
+        return self._get_tmpl(StatusResp, "/status", None)
+
+    def get_fingerprint(self):
+        return self._get_str("/object/fingerprint/me", None)
 
     # endregion
 
@@ -195,38 +170,121 @@ class Client:
 
     def get_item(self, item: _m.Item | _m.ItemID):
         obj_id = item if isinstance(item, str) else item.id
-        return self._get_object(ItemResp, "item", obj_id)
+        return self._get_object(ItemResp, "item", obj_id, None)
+    
+    def _get_specific_item(self, item: _m.Item | _m.ItemID, typ: type[_m.ItemT] ) -> _m.ItemT:
+        obj = self.get_item(item)
+        if not isinstance(obj, typ):
+            raise Exception("invalid item type")
+        return obj
+    
+    def get_item_login(self, item: _m.Item | _m.ItemID):
+        return self._get_specific_item(item, _m.ItemLogin)
+
+    def get_item_card(self, item: _m.Item | _m.ItemID):
+        return self._get_specific_item(item, _m.ItemCard)
+    
+    def get_item_securenote(self, item: _m.Item | _m.ItemID):
+        return self._get_specific_item(item, _m.ItemSecureNote)
+    
+    def get_item_identity(self, item: _m.Item | _m.ItemID):
+        return self._get_specific_item(item, _m.ItemIdentity)
+
 
     def get_items(
         self,
         search: str | None = None,
-        orgID: _m.OrgID | None = None,
-        collID: _m.CollID | None = None,
-        folderID: _m.DirID | None = None,
+        org_id: _m.OrgID | None = None,
+        coll_id: _m.CollID | None = None,
+        folder_id: _m.FolderID | None = None,
         url: str | None = None,
         trash: bool = False,
         exact: bool = False,
     ):
-        params = {
-            "organizationId": orgID,
-            "collectionId": collID,
-            "folderid": folderID,
-            "url": url,
-            "trash": "true" if trash else None,
-            "search": search,
-        }
-        return self._get_list(ItemsResp, "items", params, exact)
+        params = _m.ItemQuery(
+            search=search,
+            coll_id=coll_id,
+            org_id=org_id,
+            folder_id=folder_id,
+            url=url,
+            trash=trash,
+        )
+        
+        return self._get_object_list(ItemsResp, "items", params, exact)
+
+    def _get_specific_items(self,
+        search: str | None,
+        org_id: _m.OrgID | None,
+        coll_id: _m.CollID | None,
+        folder_id: _m.FolderID | None,
+        url: str | None,
+        trash: bool,
+        exact: bool,
+        typ: type[_m.ItemT],
+         ) -> list[_m.ItemT]:
+        objs = self.get_items(search, org_id, coll_id, folder_id, url, trash, exact)
+        return [obj for obj in objs if isinstance(obj, typ)]
+    
+    def get_item_logins(
+        self,
+        search: str | None = None,
+        org_id: _m.OrgID | None = None,
+        coll_id: _m.CollID | None = None,
+        folder_id: _m.FolderID | None = None,
+        url: str | None = None,
+        trash: bool = False,
+        exact: bool = False,
+    ):
+        return self._get_specific_items(search, org_id, coll_id, folder_id, url, trash, exact, _m.ItemLogin)
+    
+    def get_item_cards(
+        self,
+        search: str | None = None,
+        org_id: _m.OrgID | None = None,
+        coll_id: _m.CollID | None = None,
+        folder_id: _m.FolderID | None = None,
+        url: str | None = None,
+        trash: bool = False,
+        exact: bool = False,
+    ):
+        return self._get_specific_items(search, org_id, coll_id, folder_id, url, trash, exact, _m.ItemCard)
+    
+    def get_item_identities(
+        self,
+        search: str | None = None,
+        org_id: _m.OrgID | None = None,
+        coll_id: _m.CollID | None = None,
+        folder_id: _m.FolderID | None = None,
+        url: str | None = None,
+        trash: bool = False,
+        exact: bool = False,
+    ):
+        return self._get_specific_items(search, org_id, coll_id, folder_id, url, trash, exact, _m.ItemIdentity)
+    
+    def get_item_securenotes(
+        self,
+        search: str | None = None,
+        org_id: _m.OrgID | None = None,
+        coll_id: _m.CollID | None = None,
+        folder_id: _m.FolderID | None = None,
+        url: str | None = None,
+        trash: bool = False,
+        exact: bool = False,
+    ):
+        return self._get_specific_items(search, org_id, coll_id, folder_id, url, trash, exact, _m.ItemSecureNote)
+
 
     def find_item(
         self,
         search: str | None = None,
-        orgID: _m.OrgID | None = None,
-        collID: _m.CollID | None = None,
-        folderID: _m.DirID | None = None,
+        org_id: _m.OrgID | None = None,
+        coll_id: _m.CollID | None = None,
+        folder_id: _m.FolderID | None = None,
         url: str | None = None,
+        trash: bool = False,
         exact: bool = False,
     ):
-        res = self.get_items(search, orgID, collID, folderID, url, exact)
+        res = self.get_items(search, org_id, coll_id, folder_id, url, trash, exact)
         match len(res):
             case 0:
                 raise Exception("no item found")
@@ -234,49 +292,105 @@ class Client:
                 return res[0]
             case _:
                 raise Exception("multiple items matches")
+    
+    def _find_specific_item(
+        self,
+        search: str | None,
+        org_id: _m.OrgID | None,
+        coll_id: _m.CollID | None,
+        folder_id: _m.FolderID | None,
+        url: str | None,
+        trash: bool,
+        exact: bool,
+        typ: type[_m.ItemT]
+    ) -> _m.ItemT:
+        res = self._get_specific_items(search, org_id, coll_id, folder_id, url, trash, exact, typ)
+        match len(res):
+            case 0:
+                raise Exception("no item found")
+            case 1:
+                return res[0]
+            case _:
+                raise Exception("multiple items matches")
+    
+    def find_item_login(
+        self,
+        search: str | None,
+        org_id: _m.OrgID | None,
+        coll_id: _m.CollID | None,
+        folder_id: _m.FolderID | None,
+        url: str | None,
+        trash: bool,
+        exact: bool,
+    ):
+        return self._find_specific_item(search, org_id, coll_id, folder_id, url, trash, exact, _m.ItemLogin)
 
-    def put_item(self, item: _m.Item):
-        res = self.http_client.put(f"/object/item/{item.id}", json=item.model_dump(mode="json"))
+    def find_item_card(
+        self,
+        search: str | None,
+        org_id: _m.OrgID | None,
+        coll_id: _m.CollID | None,
+        folder_id: _m.FolderID | None,
+        url: str | None,
+        trash: bool,
+        exact: bool,
+    ):
+        return self._find_specific_item(search, org_id, coll_id, folder_id, url, trash, exact, _m.ItemCard)
+    
+    def find_item_identity(
+        self,
+        search: str | None,
+        org_id: _m.OrgID | None,
+        coll_id: _m.CollID | None,
+        folder_id: _m.FolderID | None,
+        url: str | None,
+        trash: bool,
+        exact: bool,
+    ):
+        return self._find_specific_item(search, org_id, coll_id, folder_id, url, trash, exact, _m.ItemIdentity)
+    
+    def find_item_securenote(
+        self,
+        search: str | None,
+        org_id: _m.OrgID | None,
+        coll_id: _m.CollID | None,
+        folder_id: _m.FolderID | None,
+        url: str | None,
+        trash: bool,
+        exact: bool,
+    ):
+        return self._find_specific_item(search, org_id, coll_id, folder_id, url, trash, exact, _m.ItemSecureNote)
 
-        resp = ItemResp.validate_json(res.content)
 
-        if isinstance(resp, _m.ErrorResponse):
-            raise Exception(f"Could not get items [{resp.message}]")
-
-        return resp.data
+    def put_item(self, item: _m.ItemT):
+        return self._put(ItemResp, f"/object/item/{item.id}", params=None, payload=item)
 
     def post_item(self, item: NewItem):
-        res = self.http_client.post("/object/item", json=item.model_dump(mode="json"))
-        resp = ItemResp.validate_json(res.content)
-
-        if isinstance(resp, _m.ErrorResponse):
-            raise Exception(f"Could not get items [{resp.message}]")
-
-        return resp.data
+        return self._post_object(ItemResp, "/object/item", params=None, payload=item)
 
     def del_item(self, item: _m.Item | _m.ItemID):
-        item_id = item if isinstance(item, str) else item.id
-        r = self.http_client.delete(f"/object/item/{item_id}")
-        r.raise_for_status()
-
+        obj_id = item if isinstance(item, str) else item.id
+        self._delete(f"/object/item/{obj_id}", params=None)
+        
     def restore_item(self, item: _m.Item | _m.ItemID):
-        item_id = item if isinstance(item, str) else item.id
-        r = self.http_client.post(f"/restore/item/{item_id}")
-        r.raise_for_status()
+        obj_id = item if isinstance(item, str) else item.id
+        res = self._post(f"/restore/item/{obj_id}", params=None, payload=None)
+        res.raise_for_status()
 
     # endregion
 
     # region Folders
 
-    def get_folder(self, folder: _m.Folder | _m.DirID):
+    def get_folder(self, folder: _m.Folder | _m.FolderID):
         obj_id = folder if isinstance(folder, str) else folder.id
-        return self._get_object(FolderResp, "folder", obj_id)
+        return self._get_object(FolderResp, "folder", obj_id, None)
 
     def get_folders(self, search: str | None = None, exact: bool = False):
-        params = {
-            "search": search,
-        }
-        return self._get_list(FoldersResp, "folders", params, exact)
+        params = _m.FoldersQuery(
+            search=search
+        )
+        
+        return self._get_object_list(FoldersResp, "folders", params, exact)
 
     def find_folder(self, search: str | None = None, exact: bool = False):
         res = self.get_folders(search, exact)
@@ -288,41 +402,30 @@ class Client:
             case _:
                 raise Exception("multiple folders matches")
 
-    def put_folder(self, folder: _m.Folder):
-        res = self.http_client.put(f"/object/folder/{folder.id}", json=folder.model_dump(mode="json"))
-        resp = FolderResp.validate_json(res.content)
+    def put_folder(self, obj: _m.Folder):
+        return self._put(FolderResp, f"/object/folder/{obj.id}", params=None, payload=obj)        
 
-        if isinstance(resp, _m.ErrorResponse):
-            raise Exception(f"Could not get items [{resp.message}]")
+    def post_folder(self, obj: _m.NewFolder):
+        return self._post_object(FolderResp, "/object/folder", params=None, payload=obj)
 
-        return resp.data
+    def del_folder(self, obj: _m.Folder | _m.FolderID):
+        obj_id = obj if isinstance(obj, str) else obj.id
+        self._delete(f"/object/folder/{obj_id}", params=None)
 
-    def post_folder(self, folder: _m.NewFolder):
-        res = self.http_client.post("/object/folder", json=folder.model_dump(mode="json"))
-        resp = FolderResp.validate_json(res.content)
-
-        if isinstance(resp, _m.ErrorResponse):
-            raise Exception(f"Could not get items [{resp.message}]")
-
-        return resp.data
-
-    def del_folder(self, folder: _m.Folder):
-        r = self.http_client.delete(f"/object/folder/{folder.id}")
-        r.raise_for_status()
 
     # endregion
 
     # region Organization
 
-    def get_organization(self, org: _m.Organization | _m.OrgID):
-        obj_id = org if isinstance(org, str) else org.id
-        return self._get_object(OrgResp, "organization", obj_id)
+    def get_organization(self, obj: _m.Organization | _m.OrgID):
+        obj_id = obj if isinstance(obj, str) else obj.id
+        return self._get_object(OrgResp, "organization", obj_id, None)
 
     def get_organizations(self, search: str | None = None, exact: bool = False):
-        params = {
-            "search": search,
-        }
-        return self._get_list(OrgsResp, "organizations", params, exact)
+        params = _m.OrganizationsQuery(
+            search=search
+        )
+        return self._get_object_list(OrgsResp, "organizations", params, exact)
 
     def find_organization(
         self,
@@ -342,25 +445,25 @@ class Client:
 
     # region Collections
 
-    def get_collection(self, coll: _m.Collection | _m.CollID):
-        obj_id = coll if isinstance(coll, str) else coll.id
-        return self._get_object(CollResp, "collection", obj_id)
+    def get_collection(self, obj: _m.Collection | _m.CollID):
+        obj_id = obj if isinstance(obj, str) else obj.id
+        return self._get_object(CollResp, "collection", obj_id, None)
 
-    def get_collections(self, search: str | None = None, orgID: _m.OrgID | None = None, exact: bool = False):
-        params = {
-            "organizationId": orgID,
-            "search": search,
-        }
-        endpoint = "collections" if orgID is None else "org-collections"
-        return self._get_list(CollsResp, endpoint, params, exact)
+    def get_collections(self, search: str | None = None, org_id: _m.OrgID | None = None, exact: bool = False):
+        params = _m.CollectionsQuery(
+            search=search,
+            org_id=org_id
+        )
+        endpoint = "collections" if params.org_id is None else "org-collections"
+        return self._get_object_list(CollsResp, endpoint, params, exact)
 
     def find_collection(
         self,
         search: str | None = None,
-        orgID: _m.OrgID | None = None,
+        org_id: _m.OrgID | None = None,
         exact: bool = False,
     ):
-        res = self.get_collections(search, orgID, exact)
+        res = self.get_collections(search, org_id, exact)
         match len(res):
             case 0:
                 raise Exception("no collection found")
@@ -369,37 +472,23 @@ class Client:
             case _:
                 raise Exception("multiple collections matches")
 
-    def post_collection(self, coll: _m.NewCollection):
-        params = {
-            "organizationId": coll.org_id,
-        }
-        res = self.http_client.post("/object/org-collection", json=coll.model_dump(mode="json"), params=params)
-        resp = CollResp.validate_json(res.content)
-
-        if isinstance(resp, _m.ErrorResponse):
-            raise Exception(f"Could not create obj [{resp.message}]")
-
-        return resp.data
-
-    def put_collection(self, coll: _m.Collection):
-        params = {
-            "organizationId": coll.org_id,
-        }
-        res = self.http_client.put(
-            f"/object/org-collection/{coll.id}", json=coll.model_dump(mode="json"), params=params
+    def post_collection(self, obj: _m.NewCollection):
+        params = _m.OrgCollectionQuery(
+            org_id=obj.org_id
         )
-        resp = CollResp.validate_json(res.content)
+        return self._post_object(CollResp,"/object/org-collection", params=params, payload=obj)
+        
+    def put_collection(self, obj: _m.Collection):
+        params = _m.OrgCollectionQuery(
+            org_id=obj.org_id
+        )
+        return self._put(CollResp, f"/object/org-collection/{obj.id}", params=params, payload=obj)
 
-        if isinstance(resp, _m.ErrorResponse):
-            raise Exception(f"Could not get items [{resp.message}]")
-
-        return resp.data
-
-    def del_collection(self, coll: _m.Collection):
-        params = {
-            "organizationId": coll.org_id,
-        }
-        res = self.http_client.delete(f"/object/org-collection/{coll.id}", params=params)
-        res.raise_for_status()
+    def del_collection(self, obj: _m.Collection):
+        params = _m.OrgCollectionQuery(
+            org_id=obj.org_id
+        )
+        self._delete(f"/object/org-collection/{obj.id}", params=params)
+        
 
     # endregion
