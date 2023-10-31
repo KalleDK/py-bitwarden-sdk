@@ -76,7 +76,6 @@ class Client:
         _payload = None if payload is None else payload.model_dump(mode="json", by_alias=True)
 
         res = self.http_client.post(path, params=_params, json=_payload)
-        print(res.content)
         return res
     
     def _post_object(self, validator: TypeAdapter[RespT[T]], path: str, params: _m.Query | None, payload: _m.Payload | _m.BaseObj | None):
@@ -97,10 +96,7 @@ class Client:
     def _get(self, validator: TypeAdapter[RespT[T]], path: str, params: _m.Query | None):
         _params = None if params is None else params.model_dump(mode='json', by_alias=True, exclude_none=True)
 
-        print(path)
-        print(_params)
         res = self.http_client.get(path, params=_params)
-        print(res.content)
         resp = validator.validate_json(res.content)
 
         if isinstance(resp, _m.ErrorResponse):
