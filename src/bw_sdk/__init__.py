@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 from typing import Annotated, TypeVar, Union
+from urllib.parse import urlunsplit
 
 import httpx
 import pydantic
@@ -495,6 +496,11 @@ class Client:
         self._delete(f"/object/org-collection/{obj.id}", params=params)
 
     # endregion
+
+
+def NewClient(scheme: str = "http", host: str = "localhost", port: int = 8087, path: str = ""):
+    base_url = urlunsplit((scheme, f"{host}:{port}", path, "", ""))
+    return Client(http_client=httpx.Client(base_url=base_url))
 
 
 __all__ = ["DBStatus", "Client", "LinkTarget", "Match"]
