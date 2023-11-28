@@ -59,9 +59,11 @@ class Client:
     )
 
     @contextlib.contextmanager
-    def session(self, password: SecretStr, sync: bool = True):
+    def session(self, password: SecretStr | None, sync: bool = True):
         org_status = self.get_status()
         if org_status.status == DBStatus.Locked:
+            if password is None:
+                raise Exception("locked bw and no password")
             self.unlock(password)
         if sync:
             self.sync()
