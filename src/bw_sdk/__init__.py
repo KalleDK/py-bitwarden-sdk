@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 from typing import Annotated, TypeVar, Union
 
@@ -55,6 +56,17 @@ class Client:
     http_client: httpx.Client = dataclasses.field(
         default_factory=lambda: httpx.Client(base_url="http://localhost:8087")
     )
+
+    @contextlib.contextmanager
+    def session(self, password: SecretStr, sync: bool = True):
+        org_status = self.get_status()
+        if org_status.status == DBStatus.Locked:
+            self.unlock(password)
+        if sync:
+            self.sync()
+        yield self
+        if org_status.status == DBStatus.Locked:
+            self.lock()
 
     # region Internal
 

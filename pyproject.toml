@@ -1,6 +1,6 @@
 [project]
 name = "bw-sdk"
-version = "0.1.9"
+version = "0.1.10"
 description = ""
 authors = [
     {name = "Kalle M. Aagaard", email = "git@k-moeller.dk"},
