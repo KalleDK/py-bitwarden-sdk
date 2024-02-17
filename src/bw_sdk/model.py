@@ -38,11 +38,47 @@ class Match(enum.IntEnum):
     Never = 5
 
 
+class ObjectType(enum.StrEnum):
+    String = "string"
+    Template = "template"
+    List = "list"
+    Message = "message"
+    Item = "item"
+    Folder = "folder"
+    Organization = "organization"
+    Collection = "collection"
+    OrgCollection = "org-collection"
+
+
+# endregion
+
+# region Validators
+
+
+def _validate_secretstr(value: str | SecretStr):
+    if isinstance(value, SecretStr):
+        return value
+    return SecretStr(value)
+
+
+def _serialize_secretstr(value: SecretStr):
+    return value.get_secret_value()
+
+
+SecretStrFromStr = (
+    pydantic.BeforeValidator(_validate_secretstr),
+    pydantic.PlainSerializer(_serialize_secretstr, when_used="json"),
+)
+
 # endregion
 
 
 class BaseModel(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(populate_by_name=True)
+
+
+class BaseObj(BaseModel):
+    name: str
 
 
 # region Submodels
@@ -234,10 +270,6 @@ class UnlockData(MessageObj):
     raw: str
 
 
-class BaseObj(BaseModel):
-    name: str
-
-
 class ItemTemplate(BaseObj):
     object: Literal["item"] = pydantic.Field(repr=False)
 
@@ -247,6 +279,7 @@ class ItemTemplate(BaseObj):
     deleted_at: datetime | None = pydantic.Field(exclude=True, alias=str("deletedDate"))
 
     id: ItemID
+    name: str
     org_id: OrgID | None = pydantic.Field(alias=str("organizationId"))
     coll_ids: list[CollID] = pydantic.Field(alias=str("collectionIds"))
     folder_id: FolderID | None = pydantic.Field(alias=str("folderId"))
@@ -291,6 +324,7 @@ ItemT = TypeVar("ItemT", ItemLogin, ItemSecureNote, ItemCard, ItemIdentity)
 
 
 class NewItemBase(BaseObj):
+    name: str
     org_id: OrgID | None = pydantic.Field(default=None, alias=str("organizationId"))
     coll_ids: list[CollID] = pydantic.Field(default_factory=list, alias=str("collectionIds"))
     folder_id: FolderID | None = pydantic.Field(default=None, alias=str("folderId"))
@@ -313,28 +347,31 @@ class NewItemSecureNote(NewItemBase):
 
 
 class Folder(BaseObj):
-    object: Literal["folder"] = pydantic.Field(default="folder", repr=False)
+    name: str
+    object: Literal[ObjectType.Folder] = pydantic.Field(default=ObjectType.Folder, repr=False)
 
     id: FolderID
 
 
 class NewFolder(BaseObj):
-    pass
+    name: str
 
 
 class Organization(BaseObj):
-    object: Literal["organization"] = pydantic.Field(default="organization", repr=False)
+    object: Literal[ObjectType.Organization] = pydantic.Field(default=ObjectType.Organization, repr=False)
 
     id: OrgID
+    name: str
     status: int
     type: int
     enabled: bool
 
 
 class Collection(BaseObj):
-    object: Literal["collection"] | Literal["org-collection"] = pydantic.Field(repr=False)
+    object: Literal[ObjectType.Collection] | Literal[ObjectType.OrgCollection] = pydantic.Field(repr=False)
 
     id: CollID
+    name: str
     org_id: OrgID = pydantic.Field(alias=str("organizationId"))
     ext_id: str | None = pydantic.Field(alias=str("externalId"))
     groups: list[GroupLink] = pydantic.Field(default_factory=list)
@@ -348,6 +385,7 @@ class Collection(BaseObj):
 
 
 class NewCollection(BaseObj):
+    name: str
     org_id: OrgID = pydantic.Field(alias=str("organizationId"))
     ext_id: str | None = pydantic.Field(alias=str("externalId"))
     groups: list[GroupLink] = pydantic.Field(default_factory=list)
@@ -369,39 +407,35 @@ class ServerStatus(BaseModel):
 
 
 # region Payload
+
+
 class Payload(BaseModel):
     pass
+
+
+class UnlockPayload(Payload):
+    password: Annotated[SecretStr, *SecretStrFromStr]
+
+
+# endregion
+
+# region Query
 
 
 class Query(BaseModel):
     pass
 
 
+class OrgCollectionQuery(Query):
+    org_id: OrgID | None = pydantic.Field(default=None, alias=str("organizationId"))
+
+
 class SearchQuery(Query):
     search: str | None = None
 
 
-class UnlockPayload(Payload):
-    password: SecretStr
-
-    @pydantic.field_validator("password", mode="before")
-    @classmethod
-    def must_be_secret(cls, value: str | SecretStr):
-        if isinstance(value, SecretStr):
-            return value
-        return SecretStr(value)
-
-    @pydantic.field_serializer("password", when_used="json")
-    def dump_secret(self, v: SecretStr):
-        return v.get_secret_value()
-
-
 class FoldersQuery(SearchQuery):
     pass
-
-
-class OrgCollectionQuery(Query):
-    org_id: OrgID | None = pydantic.Field(default=None, alias=str("organizationId"))
 
 
 class OrganizationsQuery(SearchQuery):
